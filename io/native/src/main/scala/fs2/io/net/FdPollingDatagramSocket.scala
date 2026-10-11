@@ -27,7 +27,7 @@ import cats.effect.{Async, FileDescriptorPollHandle, IO, LiftIO, Resource}
 import cats.syntax.all._
 import com.comcast.ip4s._
 import fs2.io.internal.NativeUtil._
-import fs2.io.internal.{ResizableBuffer, SocketHelpers}
+import fs2.io.internal.{MulticastHelpers, ResizableBuffer, SocketHelpers}
 
 import scala.scalanative.posix.sys.socket.{connect => sconnect, _}
 import scala.scalanative.posix.sys.socketOps._
@@ -122,14 +122,70 @@ private[net] final class FdPollingDatagramSocket[F[_]: LiftIO] private (
   def join(
       join: MulticastJoin[IpAddress],
       interface: NetworkInterface
-  ): F[GroupMembership] =
-    F.raiseError(new UnsupportedOperationException("Multicast is not supported on Native"))
+  ): F[GroupMembership] = {
+    val ifIndex = java.net.NetworkInterface.getByName(interface.name).getIndex.toUInt
+    val interfaceAddress = interface.addresses
+      .collectFirst { case c if c.address.fold(_ => true, _ => false) => c.address }
+      .map(_.asInstanceOf[Ipv4Address])
+    val (source, group) = join.sourceAndGroup
+    (group.address, source) match {
+      case (group4: Ipv4Address, Some(source4: Ipv4Address)) =>
+        val interfaceAddr = interfaceAddress.getOrElse(
+          throw new IllegalArgumentException("interface does not have an IPv4 address")
+        )
+        F.delay(MulticastHelpers.joinSourceGroup(fd, group4, source4, interfaceAddr)).as {
+          new GroupMembership {
+            def drop =
+              F.delay(MulticastHelpers.dropSourceGroup(fd, group4, source4, interfaceAddr))
+            def block(source: IpAddress) = source match {
+              case s: Ipv4Address =>
+                F.delay(MulticastHelpers.blockSource(fd, group4, s, interfaceAddr))
+              case _ => F.unit
+            }
+            def unblock(source: IpAddress) = source match {
+              case s: Ipv4Address =>
+                F.delay(MulticastHelpers.unblockSource(fd, group4, s, interfaceAddr))
+              case _ => F.unit
+            }
+          }
+        }
+      case (group4: Ipv4Address, None) =>
+        val interfaceAddr = interfaceAddress.getOrElse(
+          throw new IllegalArgumentException("interface does not have an IPv4 address")
+        )
+        F.delay(MulticastHelpers.joinGroup(fd, group4, interfaceAddr)).as {
+          new GroupMembership {
+            def drop = F.delay(MulticastHelpers.dropGroup(fd, group4, interfaceAddr))
+            def block(source: IpAddress) = source match {
+              case s: Ipv4Address =>
+                F.delay(MulticastHelpers.blockSource(fd, group4, s, interfaceAddr))
+              case _ => F.unit
+            }
+            def unblock(source: IpAddress) = source match {
+              case s: Ipv4Address =>
+                F.delay(MulticastHelpers.unblockSource(fd, group4, s, interfaceAddr))
+              case _ => F.unit
+            }
+          }
+        }
+      case (group6: Ipv6Address, _) =>
+        F.delay(MulticastHelpers.joinGroup6(fd, group6, ifIndex)).as {
+          new GroupMembership {
+            def drop = F.delay(MulticastHelpers.dropGroup6(fd, group6, ifIndex))
+            def block(source: IpAddress) = F.unit
+            def unblock(source: IpAddress) = F.unit
+          }
+        }
+      case _ =>
+        throw new IllegalArgumentException("mixed address families in multicast join")
+    }
+  }
 
   def join(
       join: MulticastJoin[IpAddress],
       interface: DatagramSocket.NetworkInterface
   ): F[GroupMembership] =
-    F.raiseError(new UnsupportedOperationException("Multicast is not supported on Native"))
+    join(join, NetworkInterface.fromJava(interface))
 
   def getOption[A](key: SocketOption.Key[A]) = SocketHelpers.getOption[F, A](fd, key)
 
