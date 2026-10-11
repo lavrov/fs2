@@ -25,5 +25,7 @@ package net
 package udp
 
 trait UdpSuitePlatform {
+  val supportsMulticastPlatform: Boolean = true
+
   val concurrentBindOptionsPlatform = Nil
 }

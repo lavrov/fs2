@@ -29,6 +29,8 @@ import cats.effect.IO
 import scala.concurrent.duration._
 
 trait UdpSuitePlatform { self: UdpSuite =>
+  val supportsMulticastPlatform: Boolean = true
+
   val concurrentBindOptionsPlatform =
     List(SocketOption.reuseAddress(true), SocketOption.reusePort(true))
 

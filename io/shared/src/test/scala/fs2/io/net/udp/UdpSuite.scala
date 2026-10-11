@@ -31,14 +31,6 @@ import com.comcast.ip4s._
 
 import scala.concurrent.duration._
 
-class IOUdpSuite extends UdpSuite {
-  protected override val network = Network[IO]
-}
-
-class AsyncUdpSuite extends UdpSuite {
-  protected override val network = Network.forAsync[IO]
-}
-
 trait UdpSuite extends Fs2Suite with UdpSuitePlatform {
   protected def network: Network[IO]
 
@@ -129,6 +121,7 @@ trait UdpSuite extends Fs2Suite with UdpSuitePlatform {
     }
 
     test("multicast") {
+      assume(supportsMulticastPlatform, "Multicast is not supported on this platform")
       val group = mip"239.10.10.10"
       val groupJoin = MulticastJoin.asm(group)
       val msg = Chunk.array("Hello, world!".getBytes)
