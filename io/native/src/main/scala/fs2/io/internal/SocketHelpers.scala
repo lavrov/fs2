@@ -33,6 +33,7 @@ import com.comcast.ip4s.{
   UnixSocketAddress
 }
 
+import java.net.{NetworkInterface => JNetworkInterface}
 import java.net.SocketOption
 import java.net.StandardSocketOptions
 import scala.scalanative.meta.LinktimeInfo
@@ -197,6 +198,20 @@ private[io] object SocketHelpers {
         fd,
         TCP_NODELAY,
         value.asInstanceOf[java.lang.Boolean]
+      )
+    case StandardSocketOptions.IP_MULTICAST_TTL =>
+      F.delay(
+        MulticastHelpers.setMulticastTtl(
+          fd,
+          value.asInstanceOf[java.lang.Integer]
+        )
+      )
+    case StandardSocketOptions.IP_MULTICAST_IF =>
+      F.delay(
+        MulticastHelpers.setMulticastInterface(
+          fd,
+          value.asInstanceOf[JNetworkInterface]
+        )
       )
     case _ => throw new IllegalArgumentException
   }
